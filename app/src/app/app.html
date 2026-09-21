@@ -1,0 +1,196 @@
+<header class="topo">
+  <div class="marca">
+    <svg class="marca-sinal" viewBox="0 0 34 34" aria-hidden="true">
+      <rect width="34" height="34" rx="8" />
+      <path d="M4 18h7l2.5-6 4 12 3-9 2 3H30" />
+    </svg>
+    <div>
+      <h1>PreçoMed</h1>
+      <p class="sub">Teto de preço de medicamentos em compras públicas</p>
+    </div>
+  </div>
+  @if (raw) {
+    <p class="fonte">Lista CMED de conformidade · publicada em <strong>{{ raw.publicada }}</strong> · {{ itens.length.toLocaleString('pt-BR') }} apresentações</p>
+  }
+</header>
+
+@if (!raw) {
+  <p class="aviso erro">Não foi possível carregar a lista CMED (arquivo cmed-data.js). Recarregue a página.</p>
+} @else {
+  <section class="contexto" aria-label="Dados da compra">
+    <div class="campo">
+      <label for="uf">Estado de destino</label>
+      <select id="uf" (change)="escolherUf($any($event.target).value)">
+        @for (u of ufs; track u.sigla) {
+          <option [value]="u.sigla" [selected]="u.sigla === uf().sigla">{{ u.sigla }} · {{ u.nome }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="campo">
+      <label for="aliquota">ICMS aplicado</label>
+      <select id="aliquota" (change)="escolherAliquota($any($event.target).value)">
+        <option value="auto" [selected]="!aliquotaManual()">{{ uf().aliquota }}% · padrão de {{ uf().sigla }}</option>
+        @for (a of aliquotasIcms; track a) {
+          <option [value]="a" [selected]="aliquotaManual() === a">{{ a }}% · ajuste manual</option>
+        }
+      </select>
+    </div>
+
+    <fieldset class="campo">
+      <legend>Tipo de compra</legend>
+      <div class="segmentos">
+        <button type="button" [class.ativo]="tipoCompra() === 'regular'" [attr.aria-pressed]="tipoCompra() === 'regular'" (click)="tipoCompra.set('regular')">Licitação / dispensa</button>
+        <button type="button" [class.ativo]="tipoCompra() === 'judicial'" [attr.aria-pressed]="tipoCompra() === 'judicial'" (click)="tipoCompra.set('judicial')">Ordem judicial</button>
+      </div>
+    </fieldset>
+
+    <fieldset class="campo">
+      <legend>Comprador</legend>
+      <div class="segmentos">
+        <button type="button" [class.ativo]="compradorPublico()" [attr.aria-pressed]="compradorPublico()" (click)="escolherPublico(true)">Órgão público</button>
+        <button type="button" [class.ativo]="!compradorPublico()" [attr.aria-pressed]="!compradorPublico()" (click)="escolherPublico(false)">Privado</button>
+      </div>
+    </fieldset>
+
+    <p class="contexto-nota">
+      @if (compradorPublico()) {
+        Hospital público estadual (ex.: PROCAPE/UPE) entra como <strong>órgão público</strong>: vale a isenção do Convênio ICMS 87/02 nos produtos marcados.
+      } @else {
+        Comprador privado: não há isenção do Convênio ICMS 87/02.
+      }
+      @if (uf().nota) { {{ uf().sigla }}: {{ uf().nota }} }
+      Confira a alíquota na SEFAZ antes de publicar o edital.
+    </p>
+  </section>
+
+  <div class="busca">
+    <label for="busca" class="rotulo-busca">Medicamento</label>
+    <input id="busca" type="search" autocomplete="off" spellcheck="false"
+      placeholder="Princípio ativo, nome comercial, laboratório, EAN ou registro"
+      [value]="termo()" (input)="buscar($any($event.target).value)" />
+    <label class="check">
+      <input id="comercializados" type="checkbox" [checked]="soComercializados()" (change)="soComercializados.set($any($event.target).checked)" />
+      Só os comercializados em {{ raw.anoComercializacao }}
+    </label>
+  </div>
+
+  <main class="painel">
+    <section class="lista" aria-label="Resultados">
+      <p class="contagem">
+        @if (!termo().trim()) {
+          Digite para buscar.
+        } @else if (!encontrados().length) {
+          Nada encontrado para “{{ termo() }}”. Tente só parte do nome ou o princípio ativo.
+        } @else {
+          {{ encontrados().length.toLocaleString('pt-BR') }} apresentação(ões)
+          @if (encontrados().length > limite) { · mostrando as {{ limite }} primeiras, refine a busca }
+        }
+      </p>
+      <ul>
+        @for (r of resultados(); track r.item.id) {
+          <li>
+            <button type="button" class="linha" [class.sel]="selecionado()?.item?.id === r.item.id" (click)="selecionar(r.item.id)">
+              <span class="linha-txt">
+                <span class="linha-produto">{{ r.item.produto }}</span>
+                <span class="linha-apres">{{ r.item.apresentacao }}</span>
+                <span class="linha-meta">{{ r.item.substancia }} · {{ r.item.laboratorio }}</span>
+                <span class="selos">
+                  @if (r.item.cap) { <span class="selo selo-cap">CAP</span> }
+                  @if (r.item.confaz87) { <span class="selo">Conv. 87/02</span> }
+                  @if (r.item.icms0) { <span class="selo">ICMS 0%</span> }
+                  @if (r.item.hospitalar) { <span class="selo selo-neutro">Hospitalar</span> }
+                </span>
+              </span>
+              <span class="linha-preco">
+                <span class="linha-valor">{{ moeda(r.teto.valor) }}</span>
+                <span class="linha-col">{{ r.teto.referencia }} {{ r.teto.aliquota }}%</span>
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+
+    <section id="detalhe" class="detalhe" aria-live="polite">
+      @if (selecionado(); as s) {
+        <div class="det-cab">
+          <p class="det-sub">{{ s.item.substancia }}</p>
+          <h2>{{ s.item.produto }}</h2>
+          <p class="det-apres">{{ s.item.apresentacao }}</p>
+          <p class="det-lab">{{ s.item.laboratorio }} · {{ s.item.tipo }} · {{ s.item.regime }}</p>
+        </div>
+
+        <div class="teto">
+          <p class="teto-rotulo">Preço máximo por unidade</p>
+          <p class="teto-valor">{{ moeda(s.teto.valor) }}</p>
+          <p class="teto-col">Coluna <strong>{{ s.teto.coluna }}</strong> da lista CMED
+            · {{ s.teto.referencia === 'PF' ? 'Preço Fábrica' : 'Preço Máximo de Venda ao Governo' }}</p>
+          <ul class="motivos">
+            @for (m of s.teto.motivos; track m) { <li>{{ m }}</li> }
+          </ul>
+          <div class="qtd">
+            <label for="qtd">Quantidade</label>
+            <input id="qtd" type="text" inputmode="numeric" [value]="quantidade()" (input)="definirQuantidade($any($event.target).value)" />
+            <span class="qtd-total">Total máximo <strong>{{ moeda(total(s.teto.valor)) }}</strong></span>
+          </div>
+        </div>
+
+        @if (s.item.analiseRecursal) {
+          <p class="aviso">Preço em análise recursal na CMED ({{ s.item.analiseRecursal }}). Pode mudar na próxima lista.</p>
+        }
+        @if (s.item.regime === 'Liberado') {
+          <p class="aviso">Produto com preço <strong>liberado</strong>: o PF não segue os critérios de ajuste, mas continua sendo o teto publicado.</p>
+        }
+
+        <h3>Todos os preços desta apresentação</h3>
+        <div class="tabela-rolagem">
+          <table>
+            <thead>
+              <tr><th scope="col">ICMS</th><th scope="col">PF</th><th scope="col">PMVG</th></tr>
+            </thead>
+            <tbody>
+              @for (a of aliquotas; track a; let i = $index) {
+                <tr [class.linha-teto]="ehColunaTeto('PF', a) || ehColunaTeto('PMVG', a)">
+                  <th scope="row">{{ rotuloAliquota(a) }}</th>
+                  <td [class.cel-teto]="ehColunaTeto('PF', a)">{{ moeda(s.item.pf[i]) }}</td>
+                  <td [class.cel-teto]="ehColunaTeto('PMVG', a)">{{ moeda(s.item.pmvg[i]) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="nota-tabela">PMVG = PF × (1 − {{ capPercentual }}%). Colunas de Área de Livre Comércio (ALC) não aparecem aqui.</p>
+
+        <h3>Identificação</h3>
+        <dl class="ident">
+          <div><dt>EAN</dt><dd>{{ s.item.ean || '—' }}</dd></div>
+          <div><dt>Registro ANVISA</dt><dd>{{ s.item.registro || '—' }}</dd></div>
+          <div><dt>Código GGREM</dt><dd>{{ s.item.ggrem || '—' }}</dd></div>
+          <div><dt>CNPJ do laboratório</dt><dd>{{ s.item.cnpj || '—' }}</dd></div>
+          <div><dt>Classe terapêutica</dt><dd>{{ s.item.classe || '—' }}</dd></div>
+          <div><dt>Tarja</dt><dd>{{ s.item.tarja || '—' }}</dd></div>
+          <div><dt>Restrição hospitalar</dt><dd>{{ s.item.hospitalar ? 'Sim' : 'Não' }}</dd></div>
+          <div><dt>CAP</dt><dd>{{ s.item.cap ? 'Sim' : 'Não' }}</dd></div>
+          <div><dt>Convênio ICMS 87/02</dt><dd>{{ s.item.confaz87 ? 'Sim' : 'Não' }}</dd></div>
+          <div><dt>Isento de ICMS</dt><dd>{{ s.item.icms0 ? 'Sim' : 'Não' }}</dd></div>
+          <div><dt>Lista PIS/COFINS</dt><dd>{{ s.item.listaPisCofins || '—' }}</dd></div>
+          <div><dt>Comercializado em {{ raw.anoComercializacao }}</dt><dd>{{ s.item.comercializado ? 'Sim' : 'Não' }}</dd></div>
+        </dl>
+      } @else {
+        <p class="vazio">Escolha um medicamento na lista para ver o preço máximo.</p>
+      }
+    </section>
+  </main>
+
+  <footer class="rodape">
+    <h3>Como o teto é escolhido</h3>
+    <ul>
+      <li><strong>PF (Preço Fábrica)</strong> é o teto nas compras públicas comuns.</li>
+      <li><strong>PMVG</strong> é o teto quando o produto tem a marca <strong>CAP</strong> ou quando a compra atende ordem judicial (Resolução CMED nº 3/2011; CAP de {{ capPercentual }}%).</li>
+      <li>A coluna de ICMS é a do <strong>estado de destino</strong> da mercadoria. Produtos isentos (ICMS 0% = Sim) ou do Convênio ICMS 87/02 comprados por órgão público usam o preço a 0%.</li>
+      <li>O teto não é preço de referência: o Acórdão TCU 3016/2012 exige pesquisa de preços antes da licitação, por exemplo no <a href="https://bps.saude.gov.br" target="_blank" rel="noopener">Banco de Preços em Saúde</a>.</li>
+    </ul>
+    <p class="fonte-rodape">Fonte: {{ raw.arquivo }} (CMED/ANVISA). Ferramenta de apoio, não é publicação oficial da CMED nem do PROCAPE.</p>
+  </footer>
+}

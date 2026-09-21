@@ -1,0 +1,4 @@
+# Planilhas originais da CMED (os dados usados pelo app ficam em app/public/cmed-data.js)
+*.xlsx
+publicar/
+__pycache__/
